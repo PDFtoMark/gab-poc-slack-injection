@@ -1,0 +1,52 @@
+name: issue_created
+# PoC replica of deriv-com/flutter-deriv-packages .github/workflows/issue_created.yml
+# Deviation: the curl sink is replaced by printing the identical shell argument and
+# validating it with jq, so the produced webhook body is observable in the run log.
+on:
+  issues:
+    types: [opened]
+
+env:
+  issue_title: ${{ github.event.issue.title }}
+
+jobs:
+  send-issue-created-slack-message:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup jq
+        run: sudo apt-get install -y jq
+
+      - name: Send Slack Notification on Github Issue Opened
+        run: |
+          LABELS=$(echo '${{ toJson(github.event.issue.labels.*.name) }}' | jq -r 'join(", ")')
+          BODY="{
+            \"text\": \"Issue Created\",
+            \"blocks\": [
+              {
+                \"type\": \"section\",
+                \"text\": {
+                  \"type\": \"mrkdwn\",
+                  \"text\": \"<!channel> *New Github Issue*\"
+                }
+              },
+              {
+                \"type\": \"section\",
+                \"text\": {
+                  \"type\": \"mrkdwn\",
+                  \"text\": \"*Issue Creator:* ${{ github.event.issue.user.login }}\n*Issue Title:* $issue_title\n*Issue URL:* ${{ github.event.issue.html_url }}\n*Issue Labels:* $LABELS\"
+                }
+              }
+            ]
+          }"
+          echo "-----BEGIN WEBHOOK BODY-----"
+          printf '%s\n' "$BODY"
+          echo "-----END WEBHOOK BODY-----"
+          if printf '%s' "$BODY" | jq -e . >/dev/null 2>&1; then
+            echo "RESULT: webhook body is VALID JSON"
+            printf '%s' "$BODY" | jq -r '.blocks|length' | sed 's/^/RESULT: block count = /'
+            printf '%s' "$BODY" | jq -r '.blocks[].text.text'
+          else
+            echo "RESULT: webhook body is INVALID JSON"
+            exit 1
+          fi
+        shell: bash
